@@ -1,0 +1,12 @@
+# Plugin Definition below. This is essentially a valid helm values file that will be merged
+# with the other vcluster values during vcluster create or helm install.
+plugin:
+  contour-sync:
+    image: registry.deeplay.io/library/vcluster-contour-sync-plugin:test-1
+    imagePullPolicy: IfNotPresent
+    rbac:
+      role:
+        extraRules:
+          - apiGroups: ["projectcontour.io"]
+            resources: ["httpproxies"]
+            verbs: ["create", "delete", "patch", "update", "get", "list", "watch"]
