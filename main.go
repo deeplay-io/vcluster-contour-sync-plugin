@@ -6,7 +6,7 @@ import (
 )
 
 func main() {
-	ctx := plugin.MustInit("contour-sync-plugin")
+	ctx := plugin.MustInit("contour-sync")
 	plugin.MustRegister(syncers.NewHTTPProxySyncer(ctx))
 	plugin.MustStart()
 }
