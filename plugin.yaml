@@ -2,7 +2,7 @@
 # with the other vcluster values during vcluster create or helm install.
 plugin:
   contour-sync:
-    image: docker.io/aikoven/vcluster-contour-sync-plugin:0.1.0
+    image: docker.io/aikoven/vcluster-contour-sync-plugin:0.1.1
     imagePullPolicy: IfNotPresent
     rbac:
       role:
