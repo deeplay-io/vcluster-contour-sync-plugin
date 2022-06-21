@@ -99,12 +99,12 @@ func translateSpec(namespace string, vSpec *projectcontourv1.HTTPProxySpec) *pro
 		retSpec.VirtualHost.TLS.SecretName = translate.PhysicalName(retSpec.VirtualHost.TLS.SecretName, namespace)
 	}
 
-	for _, route := range retSpec.Routes {
+	for i, route := range retSpec.Routes {
 		if route.Services != nil {
-			for _, service := range route.Services {
+			for j, service := range route.Services {
 
 				if service.Name != "" {
-					service.Name = translate.PhysicalName(service.Name, namespace)
+					retSpec.Routes[i].Services[j].Name = translate.PhysicalName(service.Name, namespace)
 				}
 			}
 		}
