@@ -8,5 +8,6 @@ import (
 func main() {
 	ctx := plugin.MustInit("contour-sync")
 	plugin.MustRegister(syncers.NewHTTPProxySyncer(ctx))
+	plugin.MustRegister(syncers.NewExtensionServiceSyncer(ctx))
 	plugin.MustStart()
 }

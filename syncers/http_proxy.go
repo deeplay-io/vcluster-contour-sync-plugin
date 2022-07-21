@@ -1,9 +1,6 @@
 package syncers
 
 import (
-	"os"
-
-	"github.com/loft-sh/vcluster-sdk/log"
 	"github.com/loft-sh/vcluster-sdk/plugin"
 	"github.com/loft-sh/vcluster-sdk/syncer"
 	synccontext "github.com/loft-sh/vcluster-sdk/syncer/context"
@@ -68,23 +65,23 @@ func (s *httpProxySyncer) Sync(ctx *synccontext.SyncContext, pObj client.Object,
 
 func (s *httpProxySyncer) translate(vObj *projectcontourv1.HTTPProxy) *projectcontourv1.HTTPProxy {
 	newHttpProxy := s.TranslateMetadata(vObj).(*projectcontourv1.HTTPProxy)
-	newHttpProxy.Spec = *translateSpec(vObj.Namespace, &vObj.Spec)
+	newHttpProxy.Spec = *translateHttpProxySpec(vObj.Namespace, &vObj.Spec)
 	return newHttpProxy
 }
 
 func (s *httpProxySyncer) translateUpdate(pObj, vObj *projectcontourv1.HTTPProxy) *projectcontourv1.HTTPProxy {
 	var updated *projectcontourv1.HTTPProxy
 
-	translatedSpec := *translateSpec(vObj.Namespace, &vObj.Spec)
+	translatedSpec := *translateHttpProxySpec(vObj.Namespace, &vObj.Spec)
 	if !equality.Semantic.DeepEqual(translatedSpec, pObj.Spec) {
-		updated = newIfNil(updated, pObj)
+		updated = newHttpProxyIfNil(updated, pObj)
 		updated.Spec = translatedSpec
 	}
 
 	_, translatedAnnotations, translatedLabels := s.TranslateMetadataUpdate(vObj, pObj)
 
 	if !equality.Semantic.DeepEqual(translatedAnnotations, pObj.GetAnnotations()) || !equality.Semantic.DeepEqual(translatedLabels, pObj.GetLabels()) {
-		updated = newIfNil(updated, pObj)
+		updated = newHttpProxyIfNil(updated, pObj)
 		updated.Annotations = translatedAnnotations
 		updated.Labels = translatedLabels
 	}
@@ -92,7 +89,7 @@ func (s *httpProxySyncer) translateUpdate(pObj, vObj *projectcontourv1.HTTPProxy
 	return updated
 }
 
-func translateSpec(namespace string, vSpec *projectcontourv1.HTTPProxySpec) *projectcontourv1.HTTPProxySpec {
+func translateHttpProxySpec(namespace string, vSpec *projectcontourv1.HTTPProxySpec) *projectcontourv1.HTTPProxySpec {
 	retSpec := vSpec.DeepCopy()
 
 	if retSpec.VirtualHost != nil && retSpec.VirtualHost.TLS != nil && retSpec.VirtualHost.TLS.SecretName != "" {
@@ -113,18 +110,9 @@ func translateSpec(namespace string, vSpec *projectcontourv1.HTTPProxySpec) *pro
 	return retSpec
 }
 
-func newIfNil(updated *projectcontourv1.HTTPProxy, pObj *projectcontourv1.HTTPProxy) *projectcontourv1.HTTPProxy {
+func newHttpProxyIfNil(updated *projectcontourv1.HTTPProxy, pObj *projectcontourv1.HTTPProxy) *projectcontourv1.HTTPProxy {
 	if updated == nil {
 		return pObj.DeepCopy()
 	}
 	return updated
-}
-
-func printChanges(oldObject, newObject client.Object, log log.Logger) {
-	if os.Getenv("DEBUG") == "true" {
-		rawPatch, err := client.MergeFrom(oldObject).Data(newObject)
-		if err == nil {
-			log.Debugf("Updating object with: %v", string(rawPatch))
-		}
-	}
 }
