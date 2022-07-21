@@ -8,7 +8,7 @@ plugin:
       role:
         extraRules:
           - apiGroups: ["projectcontour.io"]
-            resources: ["httpproxies"]
+            resources: ["httpproxies", "extensionservices"]
             verbs: ["create", "delete", "patch", "update", "get", "list", "watch"]
       clusterRole:
         extraRules:
