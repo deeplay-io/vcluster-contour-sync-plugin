@@ -18,10 +18,10 @@ To just build the plugin image and push it to the registry, run:
 
 ```
 # Build
-docker build . -t docker.io/aikoven/vcluster-contour-sync-plugin:0.1.2
+docker build . -t docker.io/aikoven/vcluster-contour-sync-plugin:0.2.0
 
 # Push
-docker push docker.io/aikoven/vcluster-contour-sync-plugin:0.1.2
+docker push docker.io/aikoven/vcluster-contour-sync-plugin:0.2.0
 ```
 
 Then exchange the image in the `plugin.yaml`
