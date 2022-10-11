@@ -94,6 +94,13 @@ func translateHttpProxySpec(namespace string, vSpec *projectcontourv1.HTTPProxyS
 
 	if retSpec.VirtualHost != nil && retSpec.VirtualHost.TLS != nil && retSpec.VirtualHost.TLS.SecretName != "" {
 		retSpec.VirtualHost.TLS.SecretName = translate.PhysicalName(retSpec.VirtualHost.TLS.SecretName, namespace)
+
+		if retSpec.VirtualHost.TLS.ClientValidation != nil {
+			if retSpec.VirtualHost.TLS.ClientValidation.CACertificate != "" {
+				vCaCertName := retSpec.VirtualHost.TLS.ClientValidation.CACertificate
+				retSpec.VirtualHost.TLS.ClientValidation.CACertificate = translate.PhysicalName(vCaCertName, namespace)
+			}
+		}
 	}
 
 	for i, route := range retSpec.Routes {
