@@ -107,6 +107,12 @@ func translateHttpProxySpec(namespace string, vSpec *projectcontourv1.HTTPProxyS
 		}
 	}
 
+	for i, include := range retSpec.Includes {
+		if include.Name != "" {
+			retSpec.Includes[i].Name = translate.PhysicalName(include.Name, namespace)
+		}
+	}
+
 	return retSpec
 }
 
