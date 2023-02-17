@@ -65,14 +65,14 @@ func (s *httpProxySyncer) Sync(ctx *synccontext.SyncContext, pObj client.Object,
 
 func (s *httpProxySyncer) translate(vObj *projectcontourv1.HTTPProxy) *projectcontourv1.HTTPProxy {
 	newHttpProxy := s.TranslateMetadata(vObj).(*projectcontourv1.HTTPProxy)
-	newHttpProxy.Spec = *translateHttpProxySpec(vObj.Namespace, &vObj.Spec)
+	newHttpProxy.Spec = *translateHttpProxySpec(vObj.Namespace, newHttpProxy.Namespace, &vObj.Spec)
 	return newHttpProxy
 }
 
 func (s *httpProxySyncer) translateUpdate(pObj, vObj *projectcontourv1.HTTPProxy) *projectcontourv1.HTTPProxy {
 	var updated *projectcontourv1.HTTPProxy
 
-	translatedSpec := *translateHttpProxySpec(vObj.Namespace, &vObj.Spec)
+	translatedSpec := *translateHttpProxySpec(vObj.Namespace, pObj.Namespace, &vObj.Spec)
 	if !equality.Semantic.DeepEqual(translatedSpec, pObj.Spec) {
 		updated = newHttpProxyIfNil(updated, pObj)
 		updated.Spec = translatedSpec
@@ -89,7 +89,7 @@ func (s *httpProxySyncer) translateUpdate(pObj, vObj *projectcontourv1.HTTPProxy
 	return updated
 }
 
-func translateHttpProxySpec(namespace string, vSpec *projectcontourv1.HTTPProxySpec) *projectcontourv1.HTTPProxySpec {
+func translateHttpProxySpec(namespace string, physicalNamespace string, vSpec *projectcontourv1.HTTPProxySpec) *projectcontourv1.HTTPProxySpec {
 	retSpec := vSpec.DeepCopy()
 
 	if retSpec.VirtualHost != nil && retSpec.VirtualHost.TLS != nil && retSpec.VirtualHost.TLS.SecretName != "" {
@@ -116,6 +116,13 @@ func translateHttpProxySpec(namespace string, vSpec *projectcontourv1.HTTPProxyS
 		if include.Name != "" {
 			retSpec.Includes[i].Name = translate.PhysicalName(include.Name, namespace)
 		}
+	}
+
+	if retSpec.VirtualHost.Authorization.ExtensionServiceRef.Name != "" {
+		vExtensionServiceName := retSpec.VirtualHost.Authorization.ExtensionServiceRef.Name
+
+		retSpec.VirtualHost.Authorization.ExtensionServiceRef.Name = translate.PhysicalName(vExtensionServiceName, namespace)
+		retSpec.VirtualHost.Authorization.ExtensionServiceRef.Namespace = physicalNamespace
 	}
 
 	return retSpec
