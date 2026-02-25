@@ -121,6 +121,9 @@ func translateHttpProxySpec(namespace string, physicalNamespace string, vSpec *p
 	if retSpec.VirtualHost.Authorization.ExtensionServiceRef.Name != "" {
 		vExtensionServiceName := retSpec.VirtualHost.Authorization.ExtensionServiceRef.Name
 		vExtensionServiceNamespace := retSpec.VirtualHost.Authorization.ExtensionServiceRef.Namespace
+		if vExtensionServiceNamespace == "" {
+			vExtensionServiceNamespace = namespace
+		}
 
 		retSpec.VirtualHost.Authorization.ExtensionServiceRef.Name = translate.PhysicalName(vExtensionServiceName, vExtensionServiceNamespace)
 		retSpec.VirtualHost.Authorization.ExtensionServiceRef.Namespace = physicalNamespace
