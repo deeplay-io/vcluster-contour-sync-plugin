@@ -1,25 +1,27 @@
 package syncers
 
 import (
-	"github.com/loft-sh/vcluster-sdk/plugin"
 	"github.com/loft-sh/vcluster-sdk/syncer"
 	synccontext "github.com/loft-sh/vcluster-sdk/syncer/context"
 	"github.com/loft-sh/vcluster-sdk/syncer/translator"
 	"github.com/loft-sh/vcluster-sdk/translate"
-	projectcontourv1 "github.com/projectcontour/contour/apis/projectcontour/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func init() {
-	// Make sure our scheme is registered
-	_ = projectcontourv1.AddToScheme(plugin.Scheme)
-}
+// The syncer works with unstructured objects instead of the typed Contour API
+// so that fields unknown to the compiled-in API version are never dropped
+// during translation. Only the fields that reference other Kubernetes objects
+// by name are rewritten; everything else is passed through verbatim.
+var httpProxyGVK = schema.GroupVersionKind{Group: "projectcontour.io", Version: "v1", Kind: "HTTPProxy"}
 
 func NewHTTPProxySyncer(ctx *synccontext.RegisterContext) syncer.Base {
 	return &httpProxySyncer{
-		NamespacedTranslator: translator.NewNamespacedTranslator(ctx, "httpproxy", &projectcontourv1.HTTPProxy{}),
+		NamespacedTranslator: translator.NewNamespacedTranslator(ctx, "httpproxy", newUnstructuredWithGVK(httpProxyGVK)),
 	}
 }
 
@@ -30,23 +32,26 @@ type httpProxySyncer struct {
 var _ syncer.Initializer = &httpProxySyncer{}
 
 func (s *httpProxySyncer) Init(ctx *synccontext.RegisterContext) error {
-	return translate.EnsureCRDFromPhysicalCluster(ctx.Context, ctx.PhysicalManager.GetConfig(), ctx.VirtualManager.GetConfig(), projectcontourv1.GroupVersion.WithKind("HTTPProxy"))
+	return translate.EnsureCRDFromPhysicalCluster(ctx.Context, ctx.PhysicalManager.GetConfig(), ctx.VirtualManager.GetConfig(), httpProxyGVK)
 }
 
 func (s *httpProxySyncer) SyncDown(ctx *synccontext.SyncContext, vObj client.Object) (ctrl.Result, error) {
-	return s.SyncDownCreate(ctx, vObj, s.TranslateMetadata(vObj).(*projectcontourv1.HTTPProxy))
+	vHTTPProxy := vObj.(*unstructured.Unstructured)
+	pHTTPProxy := s.TranslateMetadata(vObj).(*unstructured.Unstructured)
+	setSpec(pHTTPProxy, translateHTTPProxySpec(vHTTPProxy.GetNamespace(), pHTTPProxy.GetNamespace(), getSpec(vHTTPProxy)))
+	return s.SyncDownCreate(ctx, vObj, pHTTPProxy)
 }
 
 func (s *httpProxySyncer) Sync(ctx *synccontext.SyncContext, pObj client.Object, vObj client.Object) (ctrl.Result, error) {
-	vHTTPProxy := vObj.(*projectcontourv1.HTTPProxy)
-	pHTTPProxy := pObj.(*projectcontourv1.HTTPProxy)
+	vHTTPProxy := vObj.(*unstructured.Unstructured)
+	pHTTPProxy := pObj.(*unstructured.Unstructured)
 
-	if !equality.Semantic.DeepEqual(vHTTPProxy.Status, pHTTPProxy.Status) {
-		newHTTPPRoxy := vHTTPProxy.DeepCopy()
-		newHTTPPRoxy.Status = pHTTPProxy.Status
-		ctx.Log.Infof("update virtual httpproxy %s/%s, because status is out of sync", vHTTPProxy.Namespace, vHTTPProxy.Name)
-		printChanges(vHTTPProxy, newHTTPPRoxy, ctx.Log)
-		err := ctx.VirtualClient.Status().Update(ctx.Context, newHTTPPRoxy)
+	if !equality.Semantic.DeepEqual(getStatus(vHTTPProxy), getStatus(pHTTPProxy)) {
+		newHTTPProxy := vHTTPProxy.DeepCopy()
+		setStatus(newHTTPProxy, getStatus(pHTTPProxy))
+		ctx.Log.Infof("update virtual httpproxy %s/%s, because status is out of sync", vHTTPProxy.GetNamespace(), vHTTPProxy.GetName())
+		printChanges(vHTTPProxy, newHTTPProxy, ctx.Log)
+		err := ctx.VirtualClient.Status().Update(ctx.Context, newHTTPProxy)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -55,87 +60,93 @@ func (s *httpProxySyncer) Sync(ctx *synccontext.SyncContext, pObj client.Object,
 		return ctrl.Result{}, nil
 	}
 
-	newIngress := s.translateUpdate(pHTTPProxy, vHTTPProxy)
-	if newIngress != nil {
-		printChanges(pObj, newIngress, ctx.Log)
+	updated := s.translateUpdate(pHTTPProxy, vHTTPProxy)
+	if updated != nil {
+		printChanges(pObj, updated, ctx.Log)
 	}
 
-	return s.SyncDownUpdate(ctx, vObj, newIngress)
+	return s.SyncDownUpdate(ctx, vObj, updated)
 }
 
-func (s *httpProxySyncer) translate(vObj *projectcontourv1.HTTPProxy) *projectcontourv1.HTTPProxy {
-	newHttpProxy := s.TranslateMetadata(vObj).(*projectcontourv1.HTTPProxy)
-	newHttpProxy.Spec = *translateHttpProxySpec(vObj.Namespace, newHttpProxy.Namespace, &vObj.Spec)
-	return newHttpProxy
-}
+func (s *httpProxySyncer) translateUpdate(pObj, vObj *unstructured.Unstructured) *unstructured.Unstructured {
+	var updated *unstructured.Unstructured
 
-func (s *httpProxySyncer) translateUpdate(pObj, vObj *projectcontourv1.HTTPProxy) *projectcontourv1.HTTPProxy {
-	var updated *projectcontourv1.HTTPProxy
-
-	translatedSpec := *translateHttpProxySpec(vObj.Namespace, pObj.Namespace, &vObj.Spec)
-	if !equality.Semantic.DeepEqual(translatedSpec, pObj.Spec) {
-		updated = newHttpProxyIfNil(updated, pObj)
-		updated.Spec = translatedSpec
+	translatedSpec := translateHTTPProxySpec(vObj.GetNamespace(), pObj.GetNamespace(), getSpec(vObj))
+	if !equality.Semantic.DeepEqual(translatedSpec, getSpec(pObj)) {
+		updated = newIfNil(updated, pObj)
+		setSpec(updated, translatedSpec)
 	}
 
 	_, translatedAnnotations, translatedLabels := s.TranslateMetadataUpdate(vObj, pObj)
 
 	if !equality.Semantic.DeepEqual(translatedAnnotations, pObj.GetAnnotations()) || !equality.Semantic.DeepEqual(translatedLabels, pObj.GetLabels()) {
-		updated = newHttpProxyIfNil(updated, pObj)
-		updated.Annotations = translatedAnnotations
-		updated.Labels = translatedLabels
+		updated = newIfNil(updated, pObj)
+		updated.SetAnnotations(translatedAnnotations)
+		updated.SetLabels(translatedLabels)
 	}
 
 	return updated
 }
 
-func translateHttpProxySpec(namespace string, physicalNamespace string, vSpec *projectcontourv1.HTTPProxySpec) *projectcontourv1.HTTPProxySpec {
-	retSpec := vSpec.DeepCopy()
-
-	if retSpec.VirtualHost != nil && retSpec.VirtualHost.TLS != nil && retSpec.VirtualHost.TLS.SecretName != "" {
-		retSpec.VirtualHost.TLS.SecretName = translate.PhysicalName(retSpec.VirtualHost.TLS.SecretName, namespace)
-
-		if retSpec.VirtualHost.TLS.ClientValidation != nil && retSpec.VirtualHost.TLS.ClientValidation.CACertificate != "" {
-			vCaCertName := retSpec.VirtualHost.TLS.ClientValidation.CACertificate
-			retSpec.VirtualHost.TLS.ClientValidation.CACertificate = translate.PhysicalName(vCaCertName, namespace)
-		}
+func translateHTTPProxySpec(namespace string, physicalNamespace string, vSpec map[string]interface{}) map[string]interface{} {
+	if vSpec == nil {
+		return nil
 	}
+	retSpec := runtime.DeepCopyJSON(vSpec)
 
-	for i, route := range retSpec.Routes {
-		if route.Services != nil {
-			for j, service := range route.Services {
+	if virtualHost := asMap(retSpec["virtualhost"]); virtualHost != nil {
+		if tls := asMap(virtualHost["tls"]); tls != nil {
+			if secretName, _ := tls["secretName"].(string); secretName != "" {
+				tls["secretName"] = translate.PhysicalName(secretName, namespace)
 
-				if service.Name != "" {
-					retSpec.Routes[i].Services[j].Name = translate.PhysicalName(service.Name, namespace)
+				if clientValidation := asMap(tls["clientValidation"]); clientValidation != nil {
+					if caSecret, _ := clientValidation["caSecret"].(string); caSecret != "" {
+						clientValidation["caSecret"] = translate.PhysicalName(caSecret, namespace)
+					}
+				}
+			}
+		}
+
+		if authorization := asMap(virtualHost["authorization"]); authorization != nil {
+			if extensionRef := asMap(authorization["extensionRef"]); extensionRef != nil {
+				if name, _ := extensionRef["name"].(string); name != "" {
+					refNamespace, _ := extensionRef["namespace"].(string)
+					if refNamespace == "" {
+						refNamespace = namespace
+					}
+
+					extensionRef["name"] = translate.PhysicalName(name, refNamespace)
+					extensionRef["namespace"] = physicalNamespace
 				}
 			}
 		}
 	}
 
-	for i, include := range retSpec.Includes {
-		if include.Name != "" {
-			retSpec.Includes[i].Name = translate.PhysicalName(include.Name, namespace)
+	for _, r := range asSlice(retSpec["routes"]) {
+		route := asMap(r)
+		if route == nil {
+			continue
+		}
+		for _, s := range asSlice(route["services"]) {
+			service := asMap(s)
+			if service == nil {
+				continue
+			}
+			if name, _ := service["name"].(string); name != "" {
+				service["name"] = translate.PhysicalName(name, namespace)
+			}
 		}
 	}
 
-	if retSpec.VirtualHost != nil && retSpec.VirtualHost.Authorization != nil &&
-		retSpec.VirtualHost.Authorization.ExtensionServiceRef.Name != "" {
-		vExtensionServiceName := retSpec.VirtualHost.Authorization.ExtensionServiceRef.Name
-		vExtensionServiceNamespace := retSpec.VirtualHost.Authorization.ExtensionServiceRef.Namespace
-		if vExtensionServiceNamespace == "" {
-			vExtensionServiceNamespace = namespace
+	for _, i := range asSlice(retSpec["includes"]) {
+		include := asMap(i)
+		if include == nil {
+			continue
 		}
-
-		retSpec.VirtualHost.Authorization.ExtensionServiceRef.Name = translate.PhysicalName(vExtensionServiceName, vExtensionServiceNamespace)
-		retSpec.VirtualHost.Authorization.ExtensionServiceRef.Namespace = physicalNamespace
+		if name, _ := include["name"].(string); name != "" {
+			include["name"] = translate.PhysicalName(name, namespace)
+		}
 	}
 
 	return retSpec
-}
-
-func newHttpProxyIfNil(updated *projectcontourv1.HTTPProxy, pObj *projectcontourv1.HTTPProxy) *projectcontourv1.HTTPProxy {
-	if updated == nil {
-		return pObj.DeepCopy()
-	}
-	return updated
 }
